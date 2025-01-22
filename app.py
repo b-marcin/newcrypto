@@ -5,169 +5,377 @@ import numpy as np
 from sklearn.preprocessing import StandardScaler
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
-from typing import List, Tuple, Dict
+import plotly.express as px
+import requests
+from textblob import TextBlob
+import ccxt
+from scipy import stats
+import ta
 
-class CryptoAnalyzer:
+class AdvancedCryptoAnalyzer:
     def __init__(self):
-        # Established cryptocurrencies to use as reference
         self.established_cryptos = ['BTC-USD', 'ETH-USD', 'BNB-USD', 'XRP-USD', 'ADA-USD']
-        self.success_metrics = ['volatility', 'volume_trend', 'price_momentum', 'market_correlation']
+        self.success_metrics = [
+            'volatility', 'volume_trend', 'price_momentum', 'market_correlation',
+            'liquidity_depth', 'development_activity', 'social_sentiment',
+            'whale_activity', 'network_growth', 'token_distribution'
+        ]
+        self.exchange = ccxt.binance()
         
-    def fetch_historical_data(self, symbol: str, period: str = "1y") -> pd.DataFrame:
-        """Fetch historical data for a cryptocurrency"""
+    def fetch_order_book_data(self, symbol: str) -> Dict:
+        """Fetch order book data to analyze market depth"""
         try:
-            crypto = yf.Ticker(symbol)
-            df = crypto.history(period=period)
-            return df
-        except Exception as e:
-            st.error(f"Error fetching data for {symbol}: {str(e)}")
-            return pd.DataFrame()
-
-    def calculate_metrics(self, df: pd.DataFrame) -> Dict[str, float]:
-        """Calculate success metrics for a cryptocurrency"""
-        metrics = {}
-        
-        if len(df) < 30:  # Ensure enough data points
+            order_book = self.exchange.fetch_order_book(symbol)
+            return order_book
+        except:
             return None
+
+    def calculate_liquidity_depth(self, order_book: Dict) -> float:
+        """Calculate liquidity depth based on order book"""
+        if not order_book:
+            return 0
             
-        # Volatility (30-day rolling standard deviation of returns)
+        bids = np.array(order_book['bids'])
+        asks = np.array(order_book['asks'])
+        
+        # Calculate bid-ask spread and depth
+        spread = (asks[0][0] - bids[0][0]) / bids[0][0]
+        depth = np.sum(bids[:10, 1]) + np.sum(asks[:10, 1])
+        
+        return (1 / spread) * depth
+
+    def fetch_github_activity(self, repo_url: str) -> float:
+        """Fetch GitHub development activity metrics"""
+        try:
+            # You'll need to add GitHub API token for production use
+            headers = {'Authorization': 'token YOUR_GITHUB_TOKEN'}
+            api_url = repo_url.replace('github.com', 'api.github.com/repos')
+            
+            response = requests.get(f"{api_url}/stats/commit_activity", headers=headers)
+            commit_data = response.json()
+            
+            # Calculate weekly average commits
+            weekly_commits = [week['total'] for week in commit_data]
+            return np.mean(weekly_commits)
+        except:
+            return 0
+
+    def analyze_social_sentiment(self, symbol: str) -> float:
+        """Analyze social media sentiment"""
+        try:
+            # Replace with your preferred social media API
+            tweets = self.fetch_crypto_tweets(symbol)
+            reddit_posts = self.fetch_reddit_posts(symbol)
+            
+            # Analyze sentiment
+            sentiments = []
+            for text in tweets + reddit_posts:
+                blob = TextBlob(text)
+                sentiments.append(blob.sentiment.polarity)
+                
+            return np.mean(sentiments)
+        except:
+            return 0
+
+    def analyze_whale_activity(self, df: pd.DataFrame) -> float:
+        """Analyze large transaction patterns"""
+        large_transactions = df[df['Volume'] > df['Volume'].quantile(0.95)]
+        return len(large_transactions) / len(df)
+
+    def calculate_network_metrics(self, symbol: str) -> Dict[str, float]:
+        """Calculate on-chain metrics"""
+        try:
+            # Integrate with blockchain explorer APIs for production
+            metrics = {
+                'active_addresses': 0,
+                'transaction_count': 0,
+                'average_transaction_value': 0
+            }
+            return metrics
+        except:
+            return None
+
+    def analyze_token_distribution(self, symbol: str) -> float:
+        """Analyze token distribution and concentration"""
+        try:
+            # Integrate with blockchain explorer APIs for production
+            holder_data = self.fetch_token_holders(symbol)
+            gini_coefficient = self.calculate_gini_coefficient(holder_data)
+            return gini_coefficient
+        except:
+            return 0
+
+    def calculate_technical_indicators(self, df: pd.DataFrame) -> Dict[str, float]:
+        """Calculate advanced technical indicators"""
+        indicators = {}
+        
+        # Trend indicators
+        indicators['macd'] = ta.trend.macd_diff(df['Close'])
+        indicators['rsi'] = ta.momentum.rsi(df['Close'])
+        indicators['bollinger_hband'] = ta.volatility.bollinger_hband(df['Close'])
+        indicators['bollinger_lband'] = ta.volatility.bollinger_lband(df['Close'])
+        
+        # Volume indicators
+        indicators['volume_adi'] = ta.volume.acc_dist_index(df['High'], df['Low'], df['Close'], df['Volume'])
+        indicators['volume_obv'] = ta.volume.on_balance_volume(df['Close'], df['Volume'])
+        
+        # Momentum indicators
+        indicators['awesome_oscillator'] = ta.momentum.awesome_oscillator(df['High'], df['Low'])
+        indicators['kama'] = ta.momentum.kama(df['Close'])
+        
+        return indicators
+
+    def calculate_risk_metrics(self, df: pd.DataFrame) -> Dict[str, float]:
+        """Calculate risk-adjusted performance metrics"""
         daily_returns = df['Close'].pct_change()
-        metrics['volatility'] = daily_returns.std() * np.sqrt(252)  # Annualized
         
-        # Volume trend (linear regression slope of volume)
-        volume_trend = np.polyfit(range(len(df)), df['Volume'], 1)[0]
-        metrics['volume_trend'] = volume_trend
-        
-        # Price momentum (ratio of current price to 30-day moving average)
-        ma30 = df['Close'].rolling(window=30).mean()
-        metrics['price_momentum'] = df['Close'].iloc[-1] / ma30.iloc[-1]
-        
-        # Market correlation (correlation with BTC)
-        btc_data = self.fetch_historical_data('BTC-USD', period="1y")
-        if not btc_data.empty and len(btc_data) == len(df):
-            metrics['market_correlation'] = df['Close'].corr(btc_data['Close'])
-        else:
-            metrics['market_correlation'] = 0
-            
-        return metrics
-
-    def analyze_new_crypto(self, symbol: str) -> Dict[str, float]:
-        """Analyze a new cryptocurrency and compare it to established patterns"""
-        # Fetch data for new crypto
-        new_crypto_data = self.fetch_historical_data(symbol)
-        if new_crypto_data.empty:
-            return None
-            
-        # Calculate metrics for new crypto
-        new_metrics = self.calculate_metrics(new_crypto_data)
-        if not new_metrics:
-            return None
-            
-        # Get historical patterns from established cryptos
-        established_patterns = self.get_established_patterns()
-        
-        # Compare metrics and calculate success probability
-        success_probability = self.calculate_success_probability(new_metrics, established_patterns)
-        
-        return {
-            'metrics': new_metrics,
-            'success_probability': success_probability
+        risk_metrics = {
+            'sharpe_ratio': self.calculate_sharpe_ratio(daily_returns),
+            'sortino_ratio': self.calculate_sortino_ratio(daily_returns),
+            'max_drawdown': self.calculate_max_drawdown(df['Close']),
+            'var_95': self.calculate_value_at_risk(daily_returns, 0.95)
         }
         
-    def get_established_patterns(self) -> List[Dict[str, float]]:
-        """Get patterns from established cryptocurrencies"""
-        patterns = []
-        for crypto in self.established_cryptos:
-            data = self.fetch_historical_data(crypto)
-            if not data.empty:
-                metrics = self.calculate_metrics(data)
-                if metrics:
-                    patterns.append(metrics)
-        return patterns
-        
-    def calculate_success_probability(self, 
-                                   new_metrics: Dict[str, float], 
-                                   established_patterns: List[Dict[str, float]]) -> float:
-        """Calculate success probability based on similarity to established patterns"""
-        if not established_patterns:
-            return 0.0
+        return risk_metrics
+
+    def calculate_market_impact(self, df: pd.DataFrame, order_book: Dict) -> float:
+        """Calculate potential market impact of trades"""
+        if not order_book:
+            return 0
             
-        # Normalize metrics
-        scaler = StandardScaler()
-        established_metrics_array = []
-        for pattern in established_patterns:
-            established_metrics_array.append([pattern[metric] for metric in self.success_metrics])
+        avg_daily_volume = df['Volume'].mean()
+        liquidity_depth = self.calculate_liquidity_depth(order_book)
         
-        established_metrics_normalized = scaler.fit_transform(established_metrics_array)
-        new_metrics_normalized = scaler.transform([[new_metrics[metric] for metric in self.success_metrics]])
+        return avg_daily_volume / liquidity_depth
+
+    def predict_trend(self, df: pd.DataFrame) -> Dict[str, float]:
+        """Predict short-term price trend"""
+        # Implement your preferred prediction model here
+        # This is a simplified example using linear regression
+        X = np.arange(len(df)).reshape(-1, 1)
+        y = df['Close'].values
         
-        # Calculate similarity scores
-        similarities = []
-        for established_metric in established_metrics_normalized:
-            similarity = 1 / (1 + np.linalg.norm(new_metrics_normalized[0] - established_metric))
-            similarities.append(similarity)
-            
-        # Return average similarity as success probability
-        return np.mean(similarities)
+        slope, intercept, r_value, p_value, std_err = stats.linregress(X.flatten(), y)
+        
+        prediction = {
+            'slope': slope,
+            'r_squared': r_value ** 2,
+            'confidence': 1 - p_value
+        }
+        
+        return prediction
+
+    def generate_trading_signals(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Generate trading signals based on multiple indicators"""
+        signals = pd.DataFrame(index=df.index)
+        
+        # Calculate indicators
+        signals['sma_20'] = df['Close'].rolling(window=20).mean()
+        signals['sma_50'] = df['Close'].rolling(window=50).mean()
+        signals['rsi'] = ta.momentum.rsi(df['Close'])
+        
+        # Generate signals
+        signals['signal'] = 0
+        signals.loc[
+            (signals['sma_20'] > signals['sma_50']) & 
+            (signals['rsi'] < 70),
+            'signal'
+        ] = 1
+        signals.loc[
+            (signals['sma_20'] < signals['sma_50']) & 
+            (signals['rsi'] > 30),
+            'signal'
+        ] = -1
+        
+        return signals
 
 def main():
-    st.title("Cryptocurrency Success Analyzer")
-    st.write("""
-    This app analyzes new cryptocurrencies and predicts their potential success based on patterns
-    observed in established cryptocurrencies.
-    """)
+    st.title("Advanced Cryptocurrency Analysis Platform")
+    
+    # Sidebar for analysis options
+    st.sidebar.header("Analysis Options")
+    analysis_type = st.sidebar.selectbox(
+        "Select Analysis Type",
+        ["Technical Analysis", "On-Chain Analysis", "Market Structure", "Risk Analysis"]
+    )
     
     # Initialize analyzer
-    analyzer = CryptoAnalyzer()
+    analyzer = AdvancedCryptoAnalyzer()
     
-    # Input for new crypto symbol
-    crypto_symbol = st.text_input("Enter cryptocurrency symbol (e.g., DOGE-USD):")
+    # Input for cryptocurrency
+    crypto_symbol = st.text_input("Enter cryptocurrency symbol (e.g., BTC/USDT):")
     
     if st.button("Analyze"):
         if crypto_symbol:
-            with st.spinner("Analyzing cryptocurrency..."):
-                analysis_result = analyzer.analyze_new_crypto(crypto_symbol)
+            with st.spinner("Performing comprehensive analysis..."):
+                # Fetch data
+                df = analyzer.fetch_historical_data(crypto_symbol)
+                order_book = analyzer.fetch_order_book_data(crypto_symbol)
                 
-                if analysis_result:
-                    st.subheader("Analysis Results")
+                if not df.empty:
+                    # Display analysis based on selected type
+                    if analysis_type == "Technical Analysis":
+                        indicators = analyzer.calculate_technical_indicators(df)
+                        signals = analyzer.generate_trading_signals(df)
+                        trend_prediction = analyzer.predict_trend(df)
+                        
+                        # Create technical analysis dashboard
+                        st.subheader("Technical Analysis Dashboard")
+                        
+                        # Plot price and indicators
+                        fig = go.Figure()
+                        fig.add_trace(go.Candlestick(
+                            x=df.index,
+                            open=df['Open'],
+                            high=df['High'],
+                            low=df['Low'],
+                            close=df['Close'],
+                            name="Price"
+                        ))
+                        
+                        # Add indicators
+                        fig.add_trace(go.Scatter(
+                            x=df.index,
+                            y=indicators['bollinger_hband'],
+                            name="Upper BB",
+                            line=dict(color='gray', dash='dash')
+                        ))
+                        
+                        fig.add_trace(go.Scatter(
+                            x=df.index,
+                            y=indicators['bollinger_lband'],
+                            name="Lower BB",
+                            line=dict(color='gray', dash='dash'),
+                            fill='tonexty'
+                        ))
+                        
+                        st.plotly_chart(fig)
+                        
+                        # Display trading signals
+                        st.write("### Trading Signals")
+                        signal_fig = px.scatter(
+                            signals,
+                            x=signals.index,
+                            y=df['Close'],
+                            color='signal',
+                            title="Trading Signals"
+                        )
+                        st.plotly_chart(signal_fig)
+                        
+                    elif analysis_type == "On-Chain Analysis":
+                        network_metrics = analyzer.calculate_network_metrics(crypto_symbol)
+                        whale_activity = analyzer.analyze_whale_activity(df)
+                        token_distribution = analyzer.analyze_token_distribution(crypto_symbol)
+                        
+                        st.subheader("On-Chain Analysis")
+                        if network_metrics:
+                            st.write("### Network Activity")
+                            for metric, value in network_metrics.items():
+                                st.metric(
+                                    label=metric.replace('_', ' ').title(),
+                                    value=f"{value:,.2f}"
+                                )
+                        
+                        st.write("### Whale Activity")
+                        st.metric(
+                            label="Large Transaction Ratio",
+                            value=f"{whale_activity:.2%}"
+                        )
+                        
+                        st.write("### Token Distribution")
+                        st.metric(
+                            label="Gini Coefficient",
+                            value=f"{token_distribution:.4f}"
+                        )
+                        
+                    elif analysis_type == "Market Structure":
+                        market_impact = analyzer.calculate_market_impact(df, order_book)
+                        liquidity_depth = analyzer.calculate_liquidity_depth(order_book)
+                        
+                        st.subheader("Market Structure Analysis")
+                        
+                        # Plot order book
+                        if order_book:
+                            bids = np.array(order_book['bids'])
+                            asks = np.array(order_book['asks'])
+                            
+                            fig = go.Figure()
+                            fig.add_trace(go.Scatter(
+                                x=bids[:, 0],
+                                y=np.cumsum(bids[:, 1]),
+                                name="Bids",
+                                fill='tozeroy'
+                            ))
+                            fig.add_trace(go.Scatter(
+                                x=asks[:, 0],
+                                y=np.cumsum(asks[:, 1]),
+                                name="Asks",
+                                fill='tozeroy'
+                            ))
+                            
+                            fig.update_layout(title="Order Book Depth")
+                            st.plotly_chart(fig)
+                            
+                        st.metric(
+                            label="Market Impact Score",
+                            value=f"{market_impact:.4f}"
+                        )
+                        
+                        st.metric(
+                            label="Liquidity Depth",
+                            value=f"{liquidity_depth:,.2f}"
+                        )
+                        
+                    else:  # Risk Analysis
+                        risk_metrics = analyzer.calculate_risk_metrics(df)
+                        
+                        st.subheader("Risk Analysis")
+                        for metric, value in risk_metrics.items():
+                            st.metric(
+                                label=metric.replace('_', ' ').title(),
+                                value=f"{value:.4f}"
+                            )
+                            
+                        # Plot returns distribution
+                        returns = df['Close'].pct_change().dropna()
+                        fig = px.histogram(
+                            returns,
+                            title="Returns Distribution",
+                            nbins=50
+                        )
+                        st.plotly_chart(fig)
+                        
+                    # Common metrics for all analysis types
+                    st.subheader("Additional Insights")
+                    col1, col2, col3 = st.columns(3)
                     
-                    # Display metrics
-                    metrics = analysis_result['metrics']
-                    st.write("### Key Metrics")
-                    for metric, value in metrics.items():
-                        st.write(f"{metric.replace('_', ' ').title()}: {value:.4f}")
-                    
-                    # Display success probability
-                    success_prob = analysis_result['success_probability']
-                    st.write("### Success Probability")
-                    st.write(f"Based on historical patterns: {success_prob:.2%}")
-                    
-                    # Create gauge chart for success probability
-                    fig = go.Figure(go.Indicator(
-                        mode = "gauge+number",
-                        value = success_prob * 100,
-                        domain = {'x': [0, 1], 'y': [0, 1]},
-                        title = {'text': "Success Probability"},
-                        gauge = {
-                            'axis': {'range': [0, 100]},
-                            'bar': {'color': "darkblue"},
-                            'steps': [
-                                {'range': [0, 33], 'color': "lightgray"},
-                                {'range': [33, 66], 'color': "gray"},
-                                {'range': [66, 100], 'color': "darkgray"}
-                            ],
-                        }
-                    ))
-                    st.plotly_chart(fig)
-                    
+                    with col1:
+                        st.metric(
+                            label="30-Day Return",
+                            value=f"{((df['Close'].iloc[-1] / df['Close'].iloc[-30]) - 1):.2%}"
+                        )
+                        
+                    with col2:
+                        st.metric(
+                            label="Volatility",
+                            value=f"{df['Close'].pct_change().std() * np.sqrt(252):.2%}"
+                        )
+                        
+                    with col3:
+                        st.metric(
+                            label="Volume Trend",
+                            value=f"{np.polyfit(range(len(df)), df['Volume'], 1)[0]:,.0f}"
+                        )
+                        
                     # Disclaimer
                     st.warning("""
-                    Please note: This analysis is based on historical patterns and should not be 
-                    considered as financial advice. Cryptocurrency investments carry high risk, 
-                    and past performance does not guarantee future results.
+                    This analysis is for informational purposes only and should not be 
+                    considered as financial advice. Cryptocurrency investments carry 
+                    significant risks. Always conduct your own research and consider 
+                    consulting with a financial advisor.
                     """)
                 else:
-                    st.error("Unable to analyze the cryptocurrency. Please check the symbol and try again.")
+                    st.error("Unable to fetch data. Please check the symbol and try again.")
         else:
             st.warning("Please enter a cryptocurrency symbol.")
 
