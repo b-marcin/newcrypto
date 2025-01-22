@@ -5,3 +5,7 @@ numpy
 scikit-learn
 plotly
 textblob
+ccxt
+ta-lib
+scipy
+requests
